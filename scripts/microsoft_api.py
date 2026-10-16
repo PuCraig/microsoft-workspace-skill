@@ -6,7 +6,7 @@ import os
 from pathlib import Path
 from urllib.parse import urlencode
 
-HERMES_HOME = Path.home() / ".hermes"
+HERMES_HOME = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
 TOKEN_PATH = HERMES_HOME / "microsoft_token.json"
 CLIENT_SECRET_PATH = HERMES_HOME / "microsoft_client_secret.json"
 CONFIG_PATH = HERMES_HOME / "microsoft_config.json"

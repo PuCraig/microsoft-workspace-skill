@@ -8,7 +8,17 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GAPI="python3 $SCRIPT_DIR/microsoft_api.py"
+# Resolve a working Python interpreter (Windows Store stubs python3)
+resolve_python() {
+    for p in python3 python py; do
+        if command -v "$p" >/dev/null 2>&1 && "$p" -c "import sys" >/dev/null 2>&1; then
+            echo "$p"; return 0
+        fi
+    done
+    echo "python3"
+}
+PY="$(resolve_python)"
+GAPI="$PY $SCRIPT_DIR/microsoft_api.py"
 TO=""
 SUBJECT=""
 BODY_FILE=""

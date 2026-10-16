@@ -15,6 +15,17 @@ HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 SECRET_FILE="$HERMES_HOME/microsoft_client_secret.json"
 CONFIG_FILE="$HERMES_HOME/microsoft_config.json"
 
+# Resolve a working Python interpreter (Windows Store stubs python3)
+resolve_python() {
+    for p in python3 python py; do
+        if command -v "$p" >/dev/null 2>&1 && "$p" -c "import sys" >/dev/null 2>&1; then
+            echo "$p"; return 0
+        fi
+    done
+    echo "python3"
+}
+PY="$(resolve_python)"
+
 # Ensure directory exists
 mkdir -p "$HERMES_HOME"
 
@@ -65,7 +76,7 @@ if [[ "$ACTION" == "check" ]]; then
 
     if [[ -f "$SECRET_FILE" ]]; then
         echo "Credentials: $SECRET_FILE"
-        CID=$(python3 -c "import json; print(json.load(open('$SECRET_FILE'))['client_id'])" 2>/dev/null || echo "ERROR reading file")
+        CID=$($PY -c "import json; print(json.load(open('$SECRET_FILE'))['client_id'])" 2>/dev/null || echo "ERROR reading file")
         echo "  Client ID: ${CID:0:8}..."
     else
         echo "Credentials: NOT FOUND"
@@ -77,7 +88,7 @@ if [[ "$ACTION" == "check" ]]; then
     TOKEN_FILE="$HERMES_HOME/microsoft_token.json"
     if [[ -f "$TOKEN_FILE" ]]; then
         echo "Token: $TOKEN_FILE"
-        EXPIRES=$(python3 -c "
+        EXPIRES=$($PY -c "
 import json, time
 t = json.load(open('$TOKEN_FILE'))
 exp = t.get('expires_at', 0)
@@ -90,14 +101,14 @@ else:
         echo "  Status: $EXPIRES"
     else
         echo "Token: NOT FOUND"
-        echo "  Run: python3 setup.py --auth-url"
+        echo "  Run: $PY setup.py --auth-url"
     fi
 
     echo ""
 
     if [[ -f "$CONFIG_FILE" ]]; then
         echo "Config: $CONFIG_FILE"
-        python3 -c "import json; c=json.load(open('$CONFIG_FILE')); [print(f'  {k}: {v}') for k,v in c.items()]" 2>/dev/null
+        $PY -c "import json; c=json.load(open('$CONFIG_FILE')); [print(f'  {k}: {v}') for k,v in c.items()]" 2>/dev/null
     else
         echo "Config: NOT SET (optional)"
         echo "  Run: auth.sh --config --name 'Your Name' --agent 'AgentName'"
@@ -106,7 +117,7 @@ else:
     echo ""
     echo "Quick test:"
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    python3 "$SCRIPT_DIR/microsoft_api.py" mail list --max 1 2>&1 | head -3
+    "$PY" "$SCRIPT_DIR/microsoft_api.py" mail list --max 1 2>&1 | head -3
     exit 0
 fi
 
@@ -129,7 +140,7 @@ if [[ "$ACTION" == "config" ]]; then
         EXISTING=$(cat "$CONFIG_FILE")
     fi
 
-    python3 -c "
+    $PY -c "
 import json
 c = json.loads('''$EXISTING''') if '''$EXISTING''' != '{}' else {}
 if '$SENDER_NAME': c['sender_name'] = '$SENDER_NAME'
@@ -174,12 +185,12 @@ echo ""
 echo "Run these commands:"
 echo ""
 echo "  1. Get auth URL:"
-echo "     python3 $(dirname "$0")/setup.py --auth-url"
+echo "     $PY $(dirname "$0")/setup.py --auth-url"
 echo ""
 echo "  2. Open the URL in your browser, sign in, and copy the redirect URL"
 echo ""
 echo "  3. Paste the redirect URL:"
-echo "     python3 $(dirname "$0")/setup.py --auth-code 'PASTE_URL_HERE'"
+echo "     $PY $(dirname "$0")/setup.py --auth-code 'PASTE_URL_HERE'"
 echo ""
 echo "  4. (Optional) Set your display name for invites:"
 echo "     $(dirname "$0")/auth.sh --config --name 'Your Name' --agent 'AgentName'"

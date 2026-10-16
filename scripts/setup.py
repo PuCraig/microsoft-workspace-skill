@@ -11,12 +11,13 @@ Commands:
 
 import argparse
 import json
+import os
 import sys
 import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-HERMES_HOME = Path.home() / ".hermes"
+HERMES_HOME = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
 TOKEN_PATH = HERMES_HOME / "microsoft_token.json"
 CLIENT_SECRET_PATH = HERMES_HOME / "microsoft_client_secret.json"
 PENDING_AUTH_PATH = HERMES_HOME / "microsoft_oauth_pending.json"
