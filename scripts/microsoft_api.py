@@ -24,6 +24,19 @@ CLIENT_SECRET_PATH = HERMES_HOME / "microsoft_client_secret.json"
 CONFIG_PATH = HERMES_HOME / "microsoft_config.json"
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
+# Full desired scopes (MailboxSettings.ReadWrite added for mailbox rules).
+SCOPES = [
+    "Calendars.ReadWrite",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "User.Read",
+    "Contacts.Read",
+    "MailboxSettings.ReadWrite",
+]
+# Scopes from before MailboxSettings was added; used as refresh fallback so
+# existing tokens keep working until the app registration is updated + consented.
+LEGACY_SCOPES = SCOPES[:5]
+
 
 def _load_config() -> dict:
     """Load optional user config (sender name, agent name, etc.)."""
@@ -99,8 +112,15 @@ def _refresh_token(token: dict) -> dict:
 
     result = app.acquire_token_by_refresh_token(
         token["refresh_token"],
-        scopes=["Calendars.ReadWrite", "Mail.ReadWrite", "Mail.Send", "User.Read", "Contacts.Read"],
+        scopes=SCOPES,
     )
+    if "access_token" not in result:
+        # App registration may not have the newer scopes yet (e.g. awaiting
+        # admin consent) -- retry with the scope set the token was issued for.
+        result = app.acquire_token_by_refresh_token(
+            token["refresh_token"],
+            scopes=LEGACY_SCOPES,
+        )
 
     if "access_token" not in result:
         print(f"ERROR: Token refresh failed: {result.get('error_description', 'Unknown')}")
@@ -108,6 +128,18 @@ def _refresh_token(token: dict) -> dict:
 
     TOKEN_PATH.write_text(json.dumps(result, indent=2))
     return result
+
+
+def _token_scopes() -> set:
+    """Scopes present in the current access token (JWT scp claim)."""
+    import base64
+    try:
+        payload = _get_token().split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        claims = json.loads(base64.urlsafe_b64decode(payload))
+        return set(claims.get("scp", "").split())
+    except Exception:
+        return set()
 
 
 def _api_call(method: str, endpoint: str, data: dict = None, params: dict = None):
@@ -640,6 +672,128 @@ def mail_move(message_id: str, folder_id: str):
     return {"status": "moved", "id": message_id, "destination": folder_id}
 
 
+# === MAILBOX RULES (requires scope MailboxSettings.ReadWrite) ===
+
+def _check_rule_scope():
+    have = _token_scopes()
+    if have and "mailboxsettings.readwrite" not in {s.lower() for s in have}:
+        print("ERROR: Token lacks MailboxSettings.ReadWrite.")
+        print("Add it (delegated) to the app registration, grant consent,")
+        print("then re-authorize: python setup.py --auth-url")
+        sys.exit(1)
+
+
+def _resolve_folder_id(name_or_id: str) -> str:
+    """Resolve a well-known name or display name to a mail folder id."""
+    if name_or_id in ("inbox", "drafts", "sentitems", "deleteditems", "junkemail"):
+        return name_or_id
+    res = _api_call("GET", "/me/mailFolders",
+                    params={"$select": "id,displayName", "$top": 100})
+    for f in res.get("value", []):
+        if f.get("displayName", "").lower() == name_or_id.lower():
+            return f["id"]
+    print(f"ERROR: Mail folder not found: {name_or_id}")
+    sys.exit(1)
+
+
+def mail_rules_list():
+    """List inbox mailbox rules."""
+    _check_rule_scope()
+    result = _api_call("GET", "/me/mailFolders/inbox/messageRules",
+                       params={"$select": "id,displayName,sequence,isEnabled,conditions,actions,predicates"})
+    rules = result.get("value", [])
+    if not rules:
+        print("No mailbox rules.")
+        return []
+    output = []
+    for r in rules:
+        entry = {
+            "id": r["id"],
+            "name": r.get("displayName", ""),
+            "sequence": r.get("sequence"),
+            "enabled": r.get("isEnabled", True),
+            "conditions": r.get("conditions", {}),
+            "actions": {k: v for k, v in r.get("actions", {}).items() if v not in (None, False)},
+        }
+        output.append(entry)
+        print(f"  [{r.get('sequence')}] {entry['name']}  ({'enabled' if entry['enabled'] else 'DISABLED'})")
+        print(f"      ID: {r['id']}")
+        if entry["conditions"]:
+            print(f"      When: {json.dumps(entry['conditions'])}")
+        if entry["actions"]:
+            print(f"      Do:   {json.dumps(entry['actions'])}")
+        print()
+    return output
+
+
+def mail_rule_create(name: str, sender_contains: list = None, subject_contains: list = None,
+                     body_contains: list = None, action_move: str = None, action_delete: bool = False,
+                     action_mark_read: bool = False, action_importance: str = None,
+                     stop_processing: bool = True):
+    """Create an inbox rule: when (contains-matchers) do (move/delete/markRead)."""
+    _check_rule_scope()
+    when = {}
+    pred = {}
+    if sender_contains:
+        when["senderContains"] = sender_contains
+        pred["senderContains"] = [{"comparisonMode": "contains", "item": s} for s in sender_contains]
+    if subject_contains:
+        when["subjectOrBodyContains"] = subject_contains
+        pred["subjectOrBodyContains"] = [{"comparisonMode": "contains", "item": s} for s in subject_contains]
+    if body_contains:
+        when["bodyContains"] = body_contains
+        pred["bodyContains"] = [{"comparisonMode": "contains", "item": s} for s in body_contains]
+    if not when:
+        print("ERROR: need at least one condition (--from / --subject-contains / --body-contains)")
+        sys.exit(1)
+
+    actions = {}
+    if action_move:
+        actions["moveToFolderId"] = _resolve_folder_id(action_move)
+    if action_delete:
+        actions["delete"] = True
+    if action_mark_read:
+        actions["markAsRead"] = True
+    if action_importance:
+        actions["importance"] = action_importance
+    if not actions:
+        print("ERROR: need at least one action (--move-to / --delete / --mark-read / --importance)")
+        sys.exit(1)
+    actions["stopProcessingRules"] = stop_processing
+
+    payload = {
+        "displayName": name,
+        "enabled": True,
+        "conditions": when,
+        "actions": actions,
+        "predicates": pred,
+    }
+    result = _api_call("POST", "/me/mailFolders/inbox/messageRules", data=payload)
+    print(f"Created rule: {result.get('displayName', name)}")
+    print(f"  ID: {result.get('id', 'N/A')}")
+    print(f"  When: {json.dumps(when)}")
+    print(f"  Do:   {json.dumps(actions)}")
+    return result
+
+
+def mail_rule_set_enabled(rule_id: str, enabled: bool):
+    """Enable or disable a rule (PATCH preserves fields not sent... except conditions/actions)."""
+    _check_rule_scope()
+    # Graph PATCH on rules REPLACES conditions/actions when sent; for a plain
+    # enable/disable only 'enabled' is sent, which is safe.
+    result = _api_call("PATCH", f"/me/mailFolders/inbox/messageRules/{rule_id}",
+                       data={"enabled": enabled})
+    print(f"Rule {'enabled' if enabled else 'disabled'}: {result.get('displayName', rule_id)}")
+    return result
+
+
+def mail_rule_delete(rule_id: str):
+    """Delete a mailbox rule."""
+    _check_rule_scope()
+    _api_call("DELETE", f"/me/mailFolders/inbox/messageRules/{rule_id}")
+    print(f"Deleted rule: {rule_id}")
+
+
 def mail_send(to: str, subject: str, body: str, html: bool = False, attachment: str = None):
     """Send an email, optionally with a file attachment."""
     import base64
@@ -759,6 +913,9 @@ if __name__ == "__main__":
         print("  mail forward MESSAGE_ID --to EMAIL [--body TEXT]")
         print("  mail folders")
         print("  mail move MESSAGE_ID --folder FOLDER_ID")
+        print("  mail rules")
+        print("  mail rule-create --name NAME [--from A,B] [--subject-contains X,Y] [--body-contains X,Y] [--move-to FOLDER] [--delete] [--mark-read] [--importance low|normal|high]")
+        print("  mail rule-enable RULE_ID | mail rule-disable RULE_ID | mail rule-delete RULE_ID")
         print("  contacts list [--max N]")
         print("  user profile")
         sys.exit(1)
@@ -1058,6 +1215,52 @@ if __name__ == "__main__":
                 print("ERROR: --folder is required")
                 sys.exit(1)
             mail_move(msg_id, folder_id)
+
+        elif action == "rules":
+            mail_rules_list()
+
+        elif action == "rule-create":
+            name = None
+            senders = subjects = bodies = None
+            move_to = importance = None
+            do_delete = do_read = False
+            i = 3
+            while i < len(sys.argv):
+                if sys.argv[i] == "--name" and i + 1 < len(sys.argv):
+                    name = sys.argv[i + 1]; i += 2
+                elif sys.argv[i] == "--from" and i + 1 < len(sys.argv):
+                    senders = sys.argv[i + 1].split(","); i += 2
+                elif sys.argv[i] == "--subject-contains" and i + 1 < len(sys.argv):
+                    subjects = sys.argv[i + 1].split(","); i += 2
+                elif sys.argv[i] == "--body-contains" and i + 1 < len(sys.argv):
+                    bodies = sys.argv[i + 1].split(","); i += 2
+                elif sys.argv[i] == "--move-to" and i + 1 < len(sys.argv):
+                    move_to = sys.argv[i + 1]; i += 2
+                elif sys.argv[i] == "--importance" and i + 1 < len(sys.argv):
+                    importance = sys.argv[i + 1]; i += 2
+                elif sys.argv[i] == "--delete":
+                    do_delete = True; i += 1
+                elif sys.argv[i] == "--mark-read":
+                    do_read = True; i += 1
+                else:
+                    i += 1
+            if not name:
+                print("ERROR: --name is required")
+                sys.exit(1)
+            mail_rule_create(name, senders or [], subjects or [], bodies or [], move_to or "",
+                             do_delete, do_read, importance or "")
+
+        elif action in ("rule-enable", "rule-disable"):
+            if len(sys.argv) < 4:
+                print(f"Usage: mail {action} RULE_ID")
+                sys.exit(1)
+            mail_rule_set_enabled(sys.argv[3], action == "rule-enable")
+
+        elif action == "rule-delete":
+            if len(sys.argv) < 4:
+                print("Usage: mail rule-delete RULE_ID")
+                sys.exit(1)
+            mail_rule_delete(sys.argv[3])
 
     elif resource == "contacts":
         max_r = 20

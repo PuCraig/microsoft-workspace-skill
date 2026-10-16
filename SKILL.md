@@ -113,6 +113,11 @@ $GAPI mail folders
 # Move an email to a different folder (get folder ID from 'mail folders')
 $GAPI mail move MESSAGE_ID --folder FOLDER_ID
 
+# --- MAILBOX RULES (needs app permission MailboxSettings.ReadWrite) ---
+$GAPI mail rules
+$GAPI mail rule-create --name "RANCID" --from "rancid-review@privateuniverse.com.au" --move-to "RANCID"
+$GAPI mail rule-disable RULE_ID   # rule-enable / rule-delete also exist
+
 # --- CONTACTS ---
 
 $GAPI contacts list --max 20

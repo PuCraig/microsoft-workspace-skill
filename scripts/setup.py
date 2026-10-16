@@ -40,6 +40,7 @@ SCOPES = [
     "Mail.Send",
     "User.Read",
     "Contacts.Read",
+    "MailboxSettings.ReadWrite",
 ]
 
 from microsoft_api import _authority
