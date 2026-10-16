@@ -18,7 +18,9 @@ resolve_python() {
     echo "python3"
 }
 PY="$(resolve_python)"
-GAPI="$PY $SCRIPT_DIR/microsoft_api.py"
+# Native Windows python can't read MSYS paths; convert if cygpath exists
+SCRIPT_DIR_NATIVE="$(cygpath -w "$SCRIPT_DIR" 2>/dev/null || echo "$SCRIPT_DIR")"
+GAPI="$PY $SCRIPT_DIR_NATIVE/microsoft_api.py"
 TO=""
 SUBJECT=""
 BODY_FILE=""

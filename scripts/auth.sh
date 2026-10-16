@@ -117,7 +117,8 @@ else:
     echo ""
     echo "Quick test:"
     SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-    "$PY" "$SCRIPT_DIR/microsoft_api.py" mail list --max 1 2>&1 | head -3
+    SCRIPT_DIR_NATIVE="$(cygpath -w "$SCRIPT_DIR" 2>/dev/null || echo "$SCRIPT_DIR")"
+    "$PY" "$SCRIPT_DIR_NATIVE/microsoft_api.py" mail list --max 1 2>&1 | head -3
     exit 0
 fi
 
