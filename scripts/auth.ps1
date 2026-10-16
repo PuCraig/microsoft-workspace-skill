@@ -6,23 +6,37 @@
 #   .\auth.ps1 -Check
 #   .\auth.ps1 -Config [-Name "Your Name"] [-Agent "AgentName"] [-Timezone "Australia/Sydney"]
 
-[CmdletBinding(DefaultParameterSetName = "Setup")]
-param(
-    [switch]$Check,
-    [switch]$Config,
-    [Parameter(ParameterSetName = "Setup")]
-    [string]$ClientId,
-    [Parameter(ParameterSetName = "Setup")]
-    [string]$ClientSecret,
-    [Parameter(ParameterSetName = "Setup")]
-    [string]$TenantId = "consumers",
-    [Parameter(ParameterSetName = "Config")]
-    [string]$Name,
-    [Parameter(ParameterSetName = "Config")]
-    [string]$Agent,
-    [Parameter(ParameterSetName = "Config")]
-    [string]$Timezone
-)
+# Parse $args manually so both PS style (-ClientId X) and bash style (--client-id X) work.
+# (PowerShell's binder rejects '--flag' tokens before ValueFromRemainingArguments can see them.)
+$Check = $false; $Config = $false
+$ClientId = ""; $ClientSecret = ""; $TenantId = "consumers"
+$Name = ""; $Agent = ""; $Timezone = ""
+
+$flagMap = @{
+    "-clientid"="ClientId"; "-client-id"="ClientId"
+    "-clientsecret"="ClientSecret"; "-client-secret"="ClientSecret"
+    "-tenantid"="TenantId"; "-tenant-id"="TenantId"
+    "-name"="Name"; "-agent"="Agent"; "-timezone"="Timezone"
+}
+$switchMap = @{ "-check"="Check"; "-config"="Config" }
+
+$i = 0
+while ($i -lt $args.Count) {
+    $tok = ([string]$args[$i]).ToLower()
+    if ($tok -match '^[-/]+(.+)$') { $tok = "-" + $Matches[1] }   # normalize --x, /x, -x to -x
+    if ($switchMap.ContainsKey($tok)) {
+        Set-Variable -Name $switchMap[$tok] -Value $true -Scope Script -Force
+        $i++
+    } elseif ($flagMap.ContainsKey($tok)) {
+        if ($i + 1 -ge $args.Count) { Write-Host "Missing value for $($args[$i])"; exit 1 }
+        Set-Variable -Name $flagMap[$tok] -Value ([string]$args[$i + 1]) -Scope Script -Force
+        $i += 2
+    } else {
+        Write-Host "Unknown arg: $($args[$i])"
+        Write-Host "Usage: auth.ps1 [-ClientId ID -ClientSecret SECRET [-TenantId T]] | [-Check] | [-Config [-Name N] [-Agent A] [-Timezone TZ]]"
+        exit 1
+    }
+}
 
 $ErrorActionPreference = "Stop"
 

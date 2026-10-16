@@ -4,13 +4,32 @@
 #   .\safe_mail_send.ps1 -To "user@example.com" -Subject "Subject" -BodyFile C:\path\body.txt
 #   .\safe_mail_send.ps1 -To "..." -Subject "..." -BodyFile ... -Attachment C:\path\file.png -Confirm
 
-param(
-    [string]$To,
-    [string]$Subject,
-    [string]$BodyFile,
-    [string]$Attachment,
-    [switch]$Confirm
-)
+# Parse $args manually so both PS style (-To X) and bash style (--to X) work.
+$To = ""; $Subject = ""; $BodyFile = ""; $Attachment = ""; $Confirm = $false
+
+$flagMap = @{
+    "-to"="To"; "-subject"="Subject"; "-bodyfile"="BodyFile"; "-body-file"="BodyFile"
+    "-attachment"="Attachment"
+}
+$switchMap = @{ "-confirm"="Confirm" }
+
+$i = 0
+while ($i -lt $args.Count) {
+    $tok = ([string]$args[$i]).ToLower()
+    if ($tok -match '^[-/]+(.+)$') { $tok = "-" + $Matches[1] }
+    if ($switchMap.ContainsKey($tok)) {
+        Set-Variable -Name $switchMap[$tok] -Value $true -Scope Script -Force
+        $i++
+    } elseif ($flagMap.ContainsKey($tok)) {
+        if ($i + 1 -ge $args.Count) { Write-Host "Missing value for $($args[$i])"; exit 1 }
+        Set-Variable -Name $flagMap[$tok] -Value ([string]$args[$i + 1]) -Scope Script -Force
+        $i += 2
+    } else {
+        Write-Host "Unknown arg: $($args[$i])"
+        Write-Host "Usage: safe_mail_send.ps1 -To EMAIL -Subject SUBJECT -BodyFile PATH [-Attachment FILE] [-Confirm]"
+        exit 1
+    }
+}
 
 $ErrorActionPreference = "Stop"
 
