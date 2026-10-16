@@ -126,7 +126,8 @@ if ($Config) {
     if ($Agent)    { $cfg | Add-Member -Force NoteProperty agent_name $Agent }
     if ($Timezone) { $cfg | Add-Member -Force NoteProperty timezone $Timezone }
 
-    $cfg | ConvertTo-Json -Depth 5 | Set-Content -Path $ConfigFile -Encoding UTF8
+    $json = $cfg | ConvertTo-Json -Depth 5
+    [System.IO.File]::WriteAllText($ConfigFile, $json, (New-Object System.Text.UTF8Encoding($false)))
     Write-Host "Config saved to $ConfigFile"
     Get-Content $ConfigFile -Raw
     exit 0
@@ -143,8 +144,8 @@ if (-not $ClientId -or -not $ClientSecret) {
 }
 
 Write-Host "=== Saving Microsoft credentials ==="
-@{ client_id = $ClientId; client_secret = $ClientSecret; tenant_id = $TenantId } |
-    ConvertTo-Json -Depth 5 | Set-Content -Path $SecretFile -Encoding UTF8
+$json = @{ client_id = $ClientId; client_secret = $ClientSecret; tenant_id = $TenantId } | ConvertTo-Json -Depth 5
+[System.IO.File]::WriteAllText($SecretFile, $json, (New-Object System.Text.UTF8Encoding($false)))
 Write-Host "Saved to: $SecretFile"
 
 Write-Host ""

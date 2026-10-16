@@ -6,7 +6,19 @@ import os
 from pathlib import Path
 from urllib.parse import urlencode
 
-HERMES_HOME = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+def _hermes_home() -> Path:
+    """Locate the Hermes home, matching auth.sh/auth.ps1:
+    $HERMES_HOME -> %LOCALAPPDATA%/hermes (Windows installs) -> ~/.hermes."""
+    env = os.environ.get("HERMES_HOME")
+    if env:
+        return Path(env)
+    local = os.environ.get("LOCALAPPDATA")
+    if local and sys.platform == "win32":
+        return Path(local) / "hermes"
+    return Path.home() / ".hermes"
+
+
+HERMES_HOME = _hermes_home()
 TOKEN_PATH = HERMES_HOME / "microsoft_token.json"
 CLIENT_SECRET_PATH = HERMES_HOME / "microsoft_client_secret.json"
 CONFIG_PATH = HERMES_HOME / "microsoft_config.json"
@@ -16,7 +28,7 @@ GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 def _load_config() -> dict:
     """Load optional user config (sender name, agent name, etc.)."""
     if CONFIG_PATH.exists():
-        return json.loads(CONFIG_PATH.read_text())
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8-sig"))
     return {}
 
 
@@ -51,7 +63,7 @@ def _get_token() -> str:
         print("ERROR: Not authenticated. Run setup.py --auth-url first.")
         sys.exit(1)
 
-    token = json.loads(TOKEN_PATH.read_text())
+    token = json.loads(TOKEN_PATH.read_text(encoding="utf-8-sig"))
 
     import time
     if token.get("expires_at", 0) < time.time() + 300:
@@ -68,7 +80,7 @@ def _authority() -> str:
     tenant = "consumers"
     if CLIENT_SECRET_PATH.exists():
         try:
-            config = json.loads(CLIENT_SECRET_PATH.read_text())
+            config = json.loads(CLIENT_SECRET_PATH.read_text(encoding="utf-8-sig"))
             tenant = (config.get("tenant_id") or "").strip() or "consumers"
         except (json.JSONDecodeError, OSError):
             pass
@@ -79,7 +91,7 @@ def _refresh_token(token: dict) -> dict:
     """Refresh the access token using MSAL."""
     import msal
 
-    config = json.loads(CLIENT_SECRET_PATH.read_text())
+    config = json.loads(CLIENT_SECRET_PATH.read_text(encoding="utf-8-sig"))
     app = msal.PublicClientApplication(
         config["client_id"],
         authority=_authority(),

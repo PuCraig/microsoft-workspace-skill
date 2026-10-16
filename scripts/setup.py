@@ -17,7 +17,19 @@ import time
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-HERMES_HOME = Path(os.environ.get("HERMES_HOME") or (Path.home() / ".hermes"))
+def _hermes_home() -> Path:
+    """Locate the Hermes home, matching auth.sh/auth.ps1:
+    $HERMES_HOME -> %LOCALAPPDATA%/hermes (Windows installs) -> ~/.hermes."""
+    env = os.environ.get("HERMES_HOME")
+    if env:
+        return Path(env)
+    local = os.environ.get("LOCALAPPDATA")
+    if local and sys.platform == "win32":
+        return Path(local) / "hermes"
+    return Path.home() / ".hermes"
+
+
+HERMES_HOME = _hermes_home()
 TOKEN_PATH = HERMES_HOME / "microsoft_token.json"
 CLIENT_SECRET_PATH = HERMES_HOME / "microsoft_client_secret.json"
 PENDING_AUTH_PATH = HERMES_HOME / "microsoft_oauth_pending.json"
@@ -65,7 +77,7 @@ def _load_client_secret() -> dict:
     if not CLIENT_SECRET_PATH.exists():
         print(f"ERROR: No client secret at {CLIENT_SECRET_PATH}")
         sys.exit(1)
-    return json.loads(CLIENT_SECRET_PATH.read_text())
+    return json.loads(CLIENT_SECRET_PATH.read_text(encoding="utf-8-sig"))
 
 
 def check_auth():
@@ -83,7 +95,7 @@ def check_auth():
         authority=_authority(),
     )
 
-    token = json.loads(TOKEN_PATH.read_text())
+    token = json.loads(TOKEN_PATH.read_text(encoding="utf-8-sig"))
     accounts = app.get_accounts()
     if accounts:
         result = app.acquire_token_silent(SCOPES, account=accounts[0])
