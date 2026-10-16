@@ -684,7 +684,10 @@ def _check_rule_scope():
 
 
 def _resolve_folder_id(name_or_id: str) -> str:
-    """Resolve a well-known name or display name to a mail folder id."""
+    """Resolve a well-known name or display name to a mail folder id.
+
+    Searches top-level folders and one level of children (Inbox subfolders etc.).
+    """
     if name_or_id in ("inbox", "drafts", "sentitems", "deleteditems", "junkemail"):
         return name_or_id
     res = _api_call("GET", "/me/mailFolders",
@@ -692,6 +695,12 @@ def _resolve_folder_id(name_or_id: str) -> str:
     for f in res.get("value", []):
         if f.get("displayName", "").lower() == name_or_id.lower():
             return f["id"]
+    for f in res.get("value", []):
+        kids = _api_call("GET", f"/me/mailFolders/{f['id']}/childFolders",
+                         params={"$select": "id,displayName", "$top": 100})
+        for k in kids.get("value", []):
+            if k.get("displayName", "").lower() == name_or_id.lower():
+                return k["id"]
     print(f"ERROR: Mail folder not found: {name_or_id}")
     sys.exit(1)
 
@@ -736,7 +745,7 @@ def mail_rule_create(name: str, sender_contains: list = None, subject_contains: 
     if sender_contains:
         when["senderContains"] = sender_contains
     if subject_contains:
-        when["subjectOrBodyContains"] = subject_contains
+        when["subjectContains"] = subject_contains
     if body_contains:
         when["bodyContains"] = body_contains
     if not when:
@@ -745,21 +754,27 @@ def mail_rule_create(name: str, sender_contains: list = None, subject_contains: 
 
     actions = {}
     if action_move:
-        actions["moveToFolderId"] = _resolve_folder_id(action_move)
+        # Graph WRITE schema uses moveToFolder (read schema echoes moveToFolderId)
+        actions["moveToFolder"] = _resolve_folder_id(action_move)
     if action_delete:
         actions["delete"] = True
     if action_mark_read:
         actions["markAsRead"] = True
     if action_importance:
-        actions["importance"] = action_importance
+        actions["markImportance"] = action_importance
     if not actions:
         print("ERROR: need at least one action (--move-to / --delete / --mark-read / --importance)")
         sys.exit(1)
     actions["stopProcessingRules"] = stop_processing
 
+    # sequence must be non-zero; place the new rule at the end of the chain
+    existing = _api_call("GET", "/me/mailFolders/inbox/messageRules", params={"$select": "sequence"})
+    max_seq = max([e.get("sequence", 0) for e in existing.get("value", [])] or [0])
+
     payload = {
         "displayName": name,
-        "enabled": True,
+        "sequence": max_seq + 1,
+        "isEnabled": True,
         "conditions": when,
         "actions": actions,
     }
@@ -777,7 +792,7 @@ def mail_rule_set_enabled(rule_id: str, enabled: bool):
     # Graph PATCH on rules REPLACES conditions/actions when sent; for a plain
     # enable/disable only 'enabled' is sent, which is safe.
     result = _api_call("PATCH", f"/me/mailFolders/inbox/messageRules/{rule_id}",
-                       data={"enabled": enabled})
+                       data={"isEnabled": enabled})
     print(f"Rule {'enabled' if enabled else 'disabled'}: {result.get('displayName', rule_id)}")
     return result
 
