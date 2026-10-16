@@ -700,7 +700,7 @@ def mail_rules_list():
     """List inbox mailbox rules."""
     _check_rule_scope()
     result = _api_call("GET", "/me/mailFolders/inbox/messageRules",
-                       params={"$select": "id,displayName,sequence,isEnabled,conditions,actions,predicates"})
+                       params={"$select": "id,displayName,sequence,isEnabled,conditions,actions"})
     rules = result.get("value", [])
     if not rules:
         print("No mailbox rules.")
@@ -733,16 +733,12 @@ def mail_rule_create(name: str, sender_contains: list = None, subject_contains: 
     """Create an inbox rule: when (contains-matchers) do (move/delete/markRead)."""
     _check_rule_scope()
     when = {}
-    pred = {}
     if sender_contains:
         when["senderContains"] = sender_contains
-        pred["senderContains"] = [{"comparisonMode": "contains", "item": s} for s in sender_contains]
     if subject_contains:
         when["subjectOrBodyContains"] = subject_contains
-        pred["subjectOrBodyContains"] = [{"comparisonMode": "contains", "item": s} for s in subject_contains]
     if body_contains:
         when["bodyContains"] = body_contains
-        pred["bodyContains"] = [{"comparisonMode": "contains", "item": s} for s in body_contains]
     if not when:
         print("ERROR: need at least one condition (--from / --subject-contains / --body-contains)")
         sys.exit(1)
@@ -766,7 +762,6 @@ def mail_rule_create(name: str, sender_contains: list = None, subject_contains: 
         "enabled": True,
         "conditions": when,
         "actions": actions,
-        "predicates": pred,
     }
     result = _api_call("POST", "/me/mailFolders/inbox/messageRules", data=payload)
     print(f"Created rule: {result.get('displayName', name)}")
