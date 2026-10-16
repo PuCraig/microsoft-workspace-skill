@@ -29,7 +29,8 @@ SCOPES = [
     "Contacts.Read",
 ]
 
-AUTHORITY = "https://login.microsoftonline.com/consumers"
+from microsoft_api import _authority
+
 REDIRECT_URI = "http://localhost"
 REQUIRED_PACKAGES = ["msal"]
 
@@ -78,7 +79,7 @@ def check_auth():
     config = _load_client_secret()
     app = msal.PublicClientApplication(
         config["client_id"],
-        authority=AUTHORITY,
+        authority=_authority(),
     )
 
     token = json.loads(TOKEN_PATH.read_text())
@@ -114,7 +115,7 @@ def get_auth_url():
     config = _load_client_secret()
     app = msal.ConfidentialClientApplication(
         config["client_id"],
-        authority=AUTHORITY,
+        authority=_authority(),
         client_credential=config["client_secret"],
     )
 
@@ -140,7 +141,7 @@ def exchange_auth_code(code_or_url: str):
     config = _load_client_secret()
     app = msal.PublicClientApplication(
         config["client_id"],
-        authority=AUTHORITY,
+        authority=_authority(),
     )
 
     # Extract code from URL if needed

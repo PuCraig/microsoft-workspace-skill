@@ -20,6 +20,31 @@ def _load_config() -> dict:
     return {}
 
 
+def _default_timezone() -> str:
+    """Resolve the timezone for calendar operations.
+
+    Order: explicit config ("timezone" in ~/.hermes/microsoft_config.json)
+    -> system local timezone -> UTC. Graph accepts Windows tz names (what
+    Windows reports via time.tzname), IANA names, and UTC offsets.
+    """
+    tz = (_load_config().get("timezone") or "").strip()
+    if tz:
+        return tz
+    try:
+        from datetime import datetime
+        zi = datetime.now().astimezone().tzinfo
+        key = getattr(zi, "key", None)
+        if key:
+            return key
+        import time
+        name = time.tzname[1] if time.daylight else time.tzname[0]
+        if name:
+            return name
+    except Exception:
+        pass
+    return "UTC"
+
+
 def _get_token() -> str:
     """Get a valid access token, refreshing if needed."""
     if not TOKEN_PATH.exists():
@@ -35,6 +60,21 @@ def _get_token() -> str:
     return token["access_token"]
 
 
+def _authority() -> str:
+    """Build the login authority from the stored tenant_id (supports M365 tenants).
+
+    Falls back to 'consumers' (personal accounts) when no tenant_id is stored.
+    """
+    tenant = "consumers"
+    if CLIENT_SECRET_PATH.exists():
+        try:
+            config = json.loads(CLIENT_SECRET_PATH.read_text())
+            tenant = (config.get("tenant_id") or "").strip() or "consumers"
+        except (json.JSONDecodeError, OSError):
+            pass
+    return f"https://login.microsoftonline.com/{tenant}"
+
+
 def _refresh_token(token: dict) -> dict:
     """Refresh the access token using MSAL."""
     import msal
@@ -42,7 +82,7 @@ def _refresh_token(token: dict) -> dict:
     config = json.loads(CLIENT_SECRET_PATH.read_text())
     app = msal.PublicClientApplication(
         config["client_id"],
-        authority="https://login.microsoftonline.com/consumers",
+        authority=_authority(),
     )
 
     result = app.acquire_token_by_refresh_token(
@@ -149,9 +189,10 @@ def calendar_list(start: str = None, end: str = None, max_results: int = 25, upc
 
 
 def calendar_create(summary: str, start: str, end: str, description: str = "",
-                     attendees: list = None, timezone: str = "America/Toronto",
+                     attendees: list = None, timezone: str = None,
                      add_teams: bool = True):
     """Create a calendar event."""
+    timezone = timezone or _default_timezone()
     event = {
         "subject": summary,
         "body": {"contentType": "HTML", "content": description},
@@ -184,8 +225,9 @@ def calendar_create(summary: str, start: str, end: str, description: str = "",
 
 
 def calendar_update(event_id: str, summary: str = None, start: str = None,
-                    end: str = None, description: str = None, timezone: str = "America/Toronto"):
+                    end: str = None, description: str = None, timezone: str = None):
     """Update an existing calendar event (partial update)."""
+    timezone = timezone or _default_timezone()
     event = {}
     if summary:
         event["subject"] = summary
@@ -216,9 +258,10 @@ def calendar_delete(event_id: str):
     print(f"Deleted event: {event_id}")
 
 
-def calendar_freebusy(emails: list, start: str, end: str, timezone: str = "America/Toronto",
+def calendar_freebusy(emails: list, start: str, end: str, timezone: str = None,
                       interval_minutes: int = 30):
     """Check free/busy status for one or more people."""
+    timezone = timezone or _default_timezone()
     data = {
         "schedules": emails,
         "startTime": {"dateTime": start, "timeZone": timezone},
@@ -262,8 +305,9 @@ def calendar_freebusy(emails: list, start: str, end: str, timezone: str = "Ameri
 
 
 def calendar_find_open(emails: list, start: str, end: str, duration_minutes: int = 30,
-                       timezone: str = "America/Toronto", interval_minutes: int = 15):
+                       timezone: str = None, interval_minutes: int = 15):
     """Find available time slots where all attendees are free."""
+    timezone = timezone or _default_timezone()
     data = {
         "schedules": emails,
         "startTime": {"dateTime": start, "timeZone": timezone},
@@ -313,11 +357,12 @@ def calendar_find_open(emails: list, start: str, end: str, duration_minutes: int
 
 
 def calendar_invite(summary: str, start: str, end: str, description: str = "",
-                    attendees: list = None, timezone: str = "America/Toronto",
+                    attendees: list = None, timezone: str = None,
                     meet: bool = False):
     """Create a calendar event with attendees and optional video link."""
     from datetime import datetime
 
+    timezone = timezone or _default_timezone()
     config = _load_config()
     sender_name = config.get("sender_name", "")
     agent_name = config.get("agent_name", "")
@@ -691,7 +736,7 @@ if __name__ == "__main__":
         print("  calendar invite --summary TITLE --start DATETIME --end DATETIME [--description TEXT] [--attendees EMAIL1,EMAIL2] [--meet]")
         print("  calendar update EVENT_ID [--summary TITLE] [--start DATETIME] [--end DATETIME] [--description TEXT]")
         print("  calendar delete EVENT_ID")
-        print("  calendar freebusy --emails EMAIL1,EMAIL2 --start DATETIME --end DATETIME [--interval 30]")
+        print("  calendar freebusy --emails EMAIL1,EMAIL2 --start DATETIME --end DATETIME [--interval 30] [--timezone TZ]")
         print("  calendar findopen --emails EMAIL1,EMAIL2 --start DATETIME --end DATETIME [--duration 30] [--interval 15]")
         print("  mail list [--max N] [--folder NAME] [--unread] [--important]")
         print("  mail search --query KEYWORD [--max N] [--folder NAME]")
@@ -732,7 +777,7 @@ if __name__ == "__main__":
         elif action == "create":
             summary = desc = start = end = ""
             attendees = None
-            tz = "America/Toronto"
+            tz = None
             i = 3
             while i < len(sys.argv):
                 if sys.argv[i] == "--summary" and i + 1 < len(sys.argv):
@@ -745,6 +790,8 @@ if __name__ == "__main__":
                     end = sys.argv[i + 1]; i += 2
                 elif sys.argv[i] == "--attendees" and i + 1 < len(sys.argv):
                     attendees = sys.argv[i + 1].split(","); i += 2
+                elif sys.argv[i] == "--timezone" and i + 1 < len(sys.argv):
+                    tz = sys.argv[i + 1]; i += 2
                 else:
                     i += 1
             if not all([summary, start, end]):
@@ -759,7 +806,7 @@ if __name__ == "__main__":
             event_id = sys.argv[3]
             summary = start = end = None
             desc = None
-            tz = "America/Toronto"
+            tz = None
             i = 4
             while i < len(sys.argv):
                 if sys.argv[i] == "--summary" and i + 1 < len(sys.argv):
@@ -770,6 +817,8 @@ if __name__ == "__main__":
                     start = sys.argv[i + 1]; i += 2
                 elif sys.argv[i] == "--end" and i + 1 < len(sys.argv):
                     end = sys.argv[i + 1]; i += 2
+                elif sys.argv[i] == "--timezone" and i + 1 < len(sys.argv):
+                    tz = sys.argv[i + 1]; i += 2
                 else:
                     i += 1
             calendar_update(event_id, summary, start, end, desc, tz)
@@ -783,7 +832,7 @@ if __name__ == "__main__":
         elif action == "invite":
             summary = desc = start = end = ""
             attendees = None
-            tz = "America/Toronto"
+            tz = None
             use_meet = False
             i = 3
             while i < len(sys.argv):
@@ -799,6 +848,8 @@ if __name__ == "__main__":
                     attendees = sys.argv[i + 1].split(","); i += 2
                 elif sys.argv[i] == "--meet":
                     use_meet = True; i += 1
+                elif sys.argv[i] == "--timezone" and i + 1 < len(sys.argv):
+                    tz = sys.argv[i + 1]; i += 2
                 else:
                     i += 1
             if not all([summary, start, end]):
@@ -808,7 +859,7 @@ if __name__ == "__main__":
 
         elif action == "freebusy":
             emails = start = end = None
-            tz = "America/Toronto"
+            tz = None
             interval = 30
             i = 3
             while i < len(sys.argv):
@@ -820,6 +871,8 @@ if __name__ == "__main__":
                     end = sys.argv[i + 1]; i += 2
                 elif sys.argv[i] == "--interval" and i + 1 < len(sys.argv):
                     interval = int(sys.argv[i + 1]); i += 2
+                elif sys.argv[i] == "--timezone" and i + 1 < len(sys.argv):
+                    tz = sys.argv[i + 1]; i += 2
                 else:
                     i += 1
             if not all([emails, start, end]):
@@ -829,7 +882,7 @@ if __name__ == "__main__":
 
         elif action == "findopen":
             emails = start = end = None
-            tz = "America/Toronto"
+            tz = None
             duration = 30
             interval = 15
             i = 3
@@ -844,6 +897,8 @@ if __name__ == "__main__":
                     duration = int(sys.argv[i + 1]); i += 2
                 elif sys.argv[i] == "--interval" and i + 1 < len(sys.argv):
                     interval = int(sys.argv[i + 1]); i += 2
+                elif sys.argv[i] == "--timezone" and i + 1 < len(sys.argv):
+                    tz = sys.argv[i + 1]; i += 2
                 else:
                     i += 1
             if not all([emails, start, end]):

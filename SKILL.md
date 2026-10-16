@@ -1,7 +1,7 @@
 ---
 name: microsoft-workspace
 description: Outlook Calendar, Email, Contacts, and To-Do integration via Microsoft Graph API. Uses OAuth2 with automatic token refresh. Supports Hotmail/Outlook/Microsoft 365 accounts.
-version: 1.2.0
+version: 1.2.1
 author: hermes-community
 license: MIT
 required_credential_files:
@@ -21,8 +21,9 @@ Outlook Calendar, Email, Contacts, and To-Do integration via Microsoft Graph API
 ## Quick Setup
 
 ```bash
-# Save credentials
+# Save credentials (add --tenant-id for Microsoft 365 / Entra ID accounts)
 ./scripts/auth.sh --client-id "YOUR_CLIENT_ID" --client-secret "YOUR_CLIENT_SECRET"
+./scripts/auth.sh --client-id "YOUR_CLIENT_ID" --client-secret "YOUR_CLIENT_SECRET" --tenant-id "YOUR_TENANT_ID"
 
 # Get auth URL and authorize
 python3 scripts/setup.py --auth-url
@@ -52,6 +53,9 @@ GAPI="python3 ~/.hermes/skills/productivity/microsoft-workspace/scripts/microsof
 $GAPI calendar list
 $GAPI calendar list --all
 $GAPI calendar list --start 2026-04-10T00:00:00 --end 2026-04-10T23:59:59
+
+# Timezone: defaults to the system timezone or "timezone" in ~/.hermes/microsoft_config.json.
+# Override per-command with --timezone "Australia/Sydney" (any Graph-accepted name).
 
 # Create event (auto-adds Teams link)
 $GAPI calendar create --summary "Meeting" --start "2026-04-10T15:00:00-04:00" --end "2026-04-10T15:30:00-04:00" --description "Syncing on ideas" --attendees "john@example.com"
@@ -142,9 +146,12 @@ Optional config at `~/.hermes/microsoft_config.json`:
 ```json
 {
   "sender_name": "Your Name",
-  "agent_name": "YourAgent"
+  "agent_name": "YourAgent",
+  "timezone": "Australia/Sydney"
 }
 ```
+
+`timezone` is the default for calendar create/update/invite/freebusy/findopen. Without it the script uses the machine's local timezone.
 
 When set, calendar invites include a branded sign-off. Without this config, invites use a clean template with no personal info.
 
@@ -198,6 +205,7 @@ Or use `safe_mail_send.sh` which handles this automatically.
 | `NOT_AUTHENTICATED` | Run `auth.sh --check` then re-authorize |
 | `REFRESH_FAILED` | Token expired -- re-run `setup.py --auth-url` |
 | `AADSTS700016` | Wrong client_id or tenant_id |
+| `AADSTS50020` | Work/school account signed in on personal authority -- pass `--tenant-id` to `auth.sh` |
 | `AADSTS65001` | User not consented -- check API permissions |
 | `Insufficient privileges` | Need Calendars.ReadWrite permission |
 | `$20` becomes `0` | Use `safe_mail_send.sh` or temp file pattern |

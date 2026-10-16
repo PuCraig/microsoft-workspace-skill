@@ -22,7 +22,7 @@
             └─────────────────────────────────────┘
 ```
 
-Outlook Calendar, Email, Contacts, and To-Do integration via Microsoft Graph API. Works with Hotmail, Outlook.com, and Microsoft 365 accounts.
+Outlook Calendar, Email, Contacts, and To-Do integration via Microsoft Graph API. Works with Hotmail, Outlook.com, and Microsoft 365 accounts (pass `--tenant-id` for work/school accounts).
 
 ## Features
 
@@ -64,6 +64,7 @@ Outlook Calendar, Email, Contacts, and To-Do integration via Microsoft Graph API
 4. Fill in:
    - **Name:** `Hermes Agent` (or any name you like)
    - **Supported account types:** Select **"Accounts in any organizational directory and personal Microsoft accounts (for Hotmail/Outlook.com)"**
+   - For a work/school (Microsoft 365) account, "Single tenant" also works -- just pass its `--tenant-id` to `auth.sh`
    - **Redirect URI:** Select **"Public client/native (mobile & desktop)"** and enter `http://localhost`
 5. Click **Register**
 6. Copy these values from the overview page:
@@ -111,10 +112,10 @@ The token is saved to `~/.hermes/microsoft_token.json` and auto-refreshes.
 
 ### Step 4: (Optional) Set your display name
 
-If you want personalized calendar invite templates:
+If you want personalized calendar invite templates or a fixed calendar timezone:
 
 ```bash
-./scripts/auth.sh --config --name "Jane Doe" --agent "Hermes"
+./scripts/auth.sh --config --name "Jane Doe" --agent "Hermes" --timezone "Australia/Sydney"
 ```
 
 This saves to `~/.hermes/microsoft_config.json`. Without this, calendar invites use a clean template with no sign-off.
@@ -203,7 +204,10 @@ $API calendar list --all
 $API calendar list --start "2026-04-10T00:00:00" --end "2026-04-10T23:59:59"
 
 # Create an event with Teams link
+# Times are interpreted in --timezone (defaults to the machine's local timezone,
+# or "timezone" in ~/.hermes/microsoft_config.json)
 $API calendar create --summary "Meeting" --start "2026-04-10T15:00:00-04:00" --end "2026-04-10T15:30:00-04:00" --description "Sync up"
+$API calendar create --summary "Meeting" --start "2026-04-10T15:00:00" --end "2026-04-10T15:30:00" --timezone "Australia/Sydney"
 
 # Create an invite with attendees
 $API calendar invite --summary "Project Sync" --start "2026-04-11T14:00:00-04:00" --end "2026-04-11T14:30:00-04:00" --description "Let's discuss" --attendees "john@example.com,jane@example.com" --meet
@@ -247,6 +251,8 @@ $API user profile
 | `Not authenticated` | Run `scripts/setup.py --auth-url` then `--auth-code` |
 | `Token refresh failed` | Re-authorize: run `scripts/setup.py --auth-url` |
 | `AADSTS700016` | Wrong client_id or tenant_id in credentials |
+| `AADSTS50020` | Work/school account on personal authority -- run `auth.sh` with `--tenant-id` |
+| Events land at the wrong time | Pass `--timezone` or set `timezone` in `~/.hermes/microsoft_config.json` |
 | `AADSTS65001` | Missing API permissions -- check Azure portal |
 | `$20` becomes `0` in subject | Use `safe_mail_send.sh` or write body to a temp file with `cat << 'EOF'` |
 | Attachment too large | Max 3MB for inline attachments. Compress or split the file |

@@ -7,6 +7,7 @@
 #   ./auth.sh --client-id YOUR_CLIENT_ID --client-secret YOUR_SECRET  (uses 'consumers' tenant)
 #   ./auth.sh --check   (verify existing auth)
 #   ./auth.sh --config --name "Your Name" --agent "AgentName"  (set display name for invites)
+#   ./auth.sh --config --timezone "Australia/Sydney"      (default timezone for calendar ops)
 
 set -e
 
@@ -23,6 +24,7 @@ CLIENT_SECRET=""
 TENANT_ID="consumers"
 SENDER_NAME=""
 AGENT_NAME=""
+TIMEZONE=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,13 +35,14 @@ while [[ $# -gt 0 ]]; do
         --tenant-id) TENANT_ID="$2"; shift 2 ;;
         --name) SENDER_NAME="$2"; shift 2 ;;
         --agent) AGENT_NAME="$2"; shift 2 ;;
+        --timezone) TIMEZONE="$2"; shift 2 ;;
         -h|--help)
             echo "Microsoft Workspace Auth Setup"
             echo ""
             echo "Usage:"
             echo "  auth.sh --client-id ID --client-secret SECRET [--tenant-id TENANT]"
             echo "  auth.sh --check"
-            echo "  auth.sh --config --name 'Your Name' --agent 'AgentName'"
+            echo "  auth.sh --config --name 'Your Name' --agent 'AgentName' [--timezone TZ]"
             echo ""
             echo "Options:"
             echo "  --client-id       Azure App Registration client ID"
@@ -49,6 +52,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --config          Set sender name and agent name for calendar invites"
             echo "  --name            Your display name (used in invite sign-offs)"
             echo "  --agent           Your AI agent's name (used in invite footer)"
+            echo "  --timezone        Default timezone for calendar ops (e.g. Australia/Sydney)"
             exit 0
             ;;
         *) echo "Unknown arg: $1"; exit 1 ;;
@@ -107,7 +111,7 @@ else:
 fi
 
 if [[ "$ACTION" == "config" ]]; then
-    if [[ -z "$SENDER_NAME" && -z "$AGENT_NAME" ]]; then
+    if [[ -z "$SENDER_NAME" && -z "$AGENT_NAME" && -z "$TIMEZONE" ]]; then
         echo "Current config:"
         if [[ -f "$CONFIG_FILE" ]]; then
             cat "$CONFIG_FILE"
@@ -115,7 +119,7 @@ if [[ "$ACTION" == "config" ]]; then
             echo "  (none set)"
         fi
         echo ""
-        echo "Set with: auth.sh --config --name 'Your Name' --agent 'AgentName'"
+        echo "Set with: auth.sh --config --name 'Your Name' --agent 'AgentName' [--timezone TZ]"
         exit 0
     fi
 
@@ -130,11 +134,13 @@ import json
 c = json.loads('''$EXISTING''') if '''$EXISTING''' != '{}' else {}
 if '$SENDER_NAME': c['sender_name'] = '$SENDER_NAME'
 if '$AGENT_NAME': c['agent_name'] = '$AGENT_NAME'
+if '$TIMEZONE': c['timezone'] = '$TIMEZONE'
 with open('$CONFIG_FILE', 'w') as f:
     json.dump(c, f, indent=2)
 print('Config saved to $CONFIG_FILE')
 print(json.dumps(c, indent=2))
 "
+    chmod 600 "$CONFIG_FILE" 2>/dev/null || true
     exit 0
 fi
 
@@ -160,6 +166,7 @@ with open('$SECRET_FILE', 'w') as f:
     json.dump(data, f, indent=2)
 print(f'Saved to: $SECRET_FILE')
 "
+chmod 600 "$SECRET_FILE" 2>/dev/null || true
 
 echo ""
 echo "Credentials saved. Next step: authorize your account."
