@@ -40,7 +40,9 @@ See `README.md` for full Azure App Registration setup instructions.
 - `scripts/microsoft_api.py` -- API wrapper CLI
 - `scripts/setup.py` -- OAuth2 setup (run once to authorize)
 - `scripts/auth.sh` -- Credential management and auth verification
+- `scripts/auth.ps1` -- PowerShell version of auth.sh (Windows, no bash needed)
 - `scripts/safe_mail_send.sh` -- Preview emails before sending (prevents $ mangling and duplicates)
+- `scripts/safe_mail_send.ps1` -- PowerShell version of safe_mail_send.sh
 
 ## Usage
 
